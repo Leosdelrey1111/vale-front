@@ -27,11 +27,18 @@ const Login = () => {
         body: JSON.stringify(data),
         headers: { "Content-Type": "application/json" },
       });
+  
       const responseData = await response.json();
-
+  
       if (response.ok) {
         login(responseData.token);
-        navigate("/prestamo");
+  
+        // Redirección por rol
+        if (responseData.usuario.rol === "bibliotecario") {
+          navigate("/prestamo");
+        } else {
+          navigate(`/mis-prestamos/${responseData.usuario._id}`);
+        }
       } else {
         alert(responseData.message);
       }
@@ -39,7 +46,7 @@ const Login = () => {
       console.error("Error en el login:", error);
     }
   };
-
+  
   return (
     <Box
       sx={{

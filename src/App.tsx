@@ -8,12 +8,14 @@ import Categorias from "./routes/Categorias.tsx";
 import Editoriales from "./routes/Editoriales.tsx";
 import { MainLayout } from "./layouts/MainLayout.tsx";
 import Register from "./routes/auth/Register.tsx";
+import MisPrestamos from "./routes/MisPrestamos.tsx";
 
 function App() {
   return (
     <Routes>
       <Route path="/" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/mis-prestamos/:usuarioId" element={<MisPrestamos />} />
 
       <Route element={<MainLayout />}>
         <Route path="material" element={<Material />} />
