@@ -29,6 +29,10 @@ import {
   ListItem,
   ListItemText,
   ListItemButton,
+  InputLabel,
+  MenuItem,
+  Select,
+  Chip,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -38,6 +42,7 @@ import {
   FilterList as FilterIcon,
   Email as EmailIcon,
   Badge as BadgeIcon,
+  AttachMoney as AttachMoneyIcon,
 } from "@mui/icons-material";
 import { useForm, Controller } from "react-hook-form";
 import Autocomplete from "@mui/material/Autocomplete";
@@ -70,6 +75,7 @@ interface Usuario {
   apellido: string;
   identificacion: string;
   correo: string;
+  multaAcumulada: number;
 }
 
 export default function PrestamosPage() {
@@ -78,13 +84,17 @@ export default function PrestamosPage() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [openPrestamo, setOpenPrestamo] = useState(false);
   const [openDevolucion, setOpenDevolucion] = useState(false);
+  const [openAjusteMulta, setOpenAjusteMulta] = useState(false);
   const [selectedPrestamoId, setSelectedPrestamoId] = useState<string | null>(null);
+  const [usuarioMulta, setUsuarioMulta] = useState<Usuario | null>(null);
+  const [montoAjuste, setMontoAjuste] = useState('');
+  const [accionAjuste, setAccionAjuste] = useState('pagar');
   
   // Filtros UI
   const [showFiltros, setShowFiltros] = useState(false);
   const [filtroClave, setFiltroClave] = useState("");
   const [filtroUsuario, setFiltroUsuario] = useState("");
-  const [filtroFecha, setFiltroFecha] = useState(""); // yyyy-MM-dd
+  const [filtroFecha, setFiltroFecha] = useState("");
   const [filtroSemana, setFiltroSemana] = useState(false);
   
   // Estados para el buscador de usuarios
@@ -137,7 +147,6 @@ export default function PrestamosPage() {
     setLoadingUsers(true);
     const normalizedQuery = query.toLowerCase().trim();
     
-    // Filtramos usuarios por apellido, identificación o correo
     const resultados = usuarios.filter(usuario => 
       usuario.apellido.toLowerCase().includes(normalizedQuery) ||
       usuario.identificacion.toLowerCase().includes(normalizedQuery) ||
@@ -174,13 +183,13 @@ export default function PrestamosPage() {
         fechaDevolucionEsperada: data.fechaEsperada,
       }),
     });
+    
     if (!res.ok) {
       alert((await res.json()).message);
     } else {
       setOpenPrestamo(false);
       reset();
       setSelectedUsuario(null);
-      // recarga
       const resp = await fetch(`${apiUrl}/api/prestamos`);
       const lista = await resp.json();
       setPrestamos(
@@ -207,12 +216,12 @@ export default function PrestamosPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prestamoId: selectedPrestamoId, observaciones: data.observaciones }),
     });
+    
     if (!res.ok) {
       alert((await res.json()).message);
     } else {
       setOpenDevolucion(false);
       resetDev();
-      // recarga
       const resp = await fetch(`${apiUrl}/api/prestamos`);
       const lista = await resp.json();
       setPrestamos(
@@ -239,7 +248,21 @@ export default function PrestamosPage() {
     { field: "materialTipo", headerName: "Tipo", flex: 1 },
     { field: "fechaPrestamo", headerName: "Fecha Préstamo", flex: 1 },
     { field: "fechaDevolucionEsperada", headerName: "Fecha Esperada", flex: 1 },
-    { field: "estado", headerName: "Estado", flex: 1 },
+    { 
+      field: "estado", 
+      headerName: "Estado", 
+      flex: 1,
+      renderCell: (params) => (
+        <Chip
+          label={params.value}
+          color={
+            params.value === 'activo' ? 'success' : 
+            params.value === 'retrasado' ? 'error' : 'warning'
+          }
+          variant="outlined"
+        />
+      )
+    },
     {
       field: "actions",
       headerName: "Acciones",
@@ -268,7 +291,7 @@ export default function PrestamosPage() {
   // Función para calcular inicio y fin de semana actual
   const getWeekBounds = () => {
     const now = new Date();
-    const day = now.getDay(); // 0 (Dom) - 6 (Sáb)
+    const day = now.getDay();
     const diffToMonday = now.getDate() - day + (day === 0 ? -6 : 1);
     const monday = new Date(now.setDate(diffToMonday));
     monday.setHours(0, 0, 0, 0);
@@ -282,22 +305,18 @@ export default function PrestamosPage() {
   const prestamosFiltrados = useMemo(() => {
     const { monday, sunday } = getWeekBounds();
     return prestamos.filter((p) => {
-      // Filtrar Clave (case-insensitive con manejo de undefined)
       if (filtroClave && !(p.clavePrestamo?.toLowerCase() || '').includes(filtroClave.toLowerCase())) {
         return false;
       }
-      // Filtrar Usuario (case-insensitive con manejo de undefined)
       if (filtroUsuario && !(p.usuarioNombre?.toLowerCase() || '').includes(filtroUsuario.toLowerCase())) {
         return false;
       }
       const fechaISO = new Date(p.fechaDevolucionEsperadaISO);
-      // Filtro Semana actual
       if (filtroSemana) {
         if (isNaN(fechaISO.getTime()) || fechaISO < monday || fechaISO > sunday) {
           return false;
         }
       }
-      // Filtro Fecha exacta
       if (!filtroSemana && filtroFecha) {
         const start = new Date(filtroFecha + "T00:00:00");
         const end = new Date(filtroFecha + "T23:59:59");
@@ -337,13 +356,124 @@ export default function PrestamosPage() {
         <Typography variant="h6" flexGrow={1}>
           Gestión de Préstamos
         </Typography>
+        <Button 
+          variant="contained" 
+          color="secondary" 
+          startIcon={<AttachMoneyIcon />}
+          onClick={() => setOpenAjusteMulta(true)}
+          sx={{ mr: 1 }}
+        >
+          Gestionar Deudas
+        </Button>
         <IconButton color="primary" onClick={() => setOpenPrestamo(true)}>
           <AddIcon />
         </IconButton>
       </Stack>
-      
-      {/* Panel de filtros desplegable */}
-      <Collapse in={showFiltros}>
+
+      {/* Diálogo de Ajuste de Multas */}
+      <Dialog 
+        open={openAjusteMulta} 
+        onClose={() => setOpenAjusteMulta(false)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Ajustar Multa de Usuario</DialogTitle>
+        <DialogContent>
+          <Box component="form" sx={{ mt: 2 }}>
+            <TextField
+              fullWidth
+              label="Buscar usuario"
+              value={usuarioSearch}
+              onChange={(e) => setUsuarioSearch(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
+                  </InputAdornment>
+                ),
+              }}
+            />
+            
+            <List sx={{ maxHeight: 200, overflow: 'auto', mt: 2 }}>
+              {usuariosFiltrados.map((usuario) => (
+                <ListItemButton 
+                  key={usuario._id} 
+                  onClick={() => setUsuarioMulta(usuario)}
+                  selected={usuarioMulta?._id === usuario._id}
+                >
+                  <ListItemText
+                    primary={`${usuario.nombre} ${usuario.apellido}`}
+                    secondary={`Deuda actual: $${usuario.multaAcumulada.toFixed(2)}`}
+                  />
+                </ListItemButton>
+              ))}
+            </List>
+
+            {usuarioMulta && (
+              <>
+                <TextField
+                  fullWidth
+                  label="Monto"
+                  type="number"
+                  value={montoAjuste}
+                  onChange={(e) => setMontoAjuste(e.target.value)}
+                  sx={{ mt: 2 }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">$</InputAdornment>
+                    ),
+                  }}
+                />
+                
+                <FormControl fullWidth sx={{ mt: 2 }}>
+                  <InputLabel>Acción</InputLabel>
+                  <Select
+                    value={accionAjuste}
+                    onChange={(e) => setAccionAjuste(e.target.value)}
+                  >
+                    <MenuItem value="pagar">Registrar pago</MenuItem>
+                    <MenuItem value="ajustar">Ajuste manual</MenuItem>
+                  </Select>
+                </FormControl>
+              </>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenAjusteMulta(false)}>Cancelar</Button>
+          <Button 
+            variant="contained" 
+            disabled={!usuarioMulta}
+            onClick={async () => {
+              try {
+                const res = await fetch(`${apiUrl}/api/usuarios/${usuarioMulta?._id}/multa`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    accion: accionAjuste,
+                    monto: Number(montoAjuste),
+                    observaciones: `Ajuste realizado por bibliotecario`
+                  }),
+                });
+                
+                if (res.ok) {
+                  setOpenAjusteMulta(false);
+                  const resp = await fetch(`${apiUrl}/api/usuarios`);
+                  setUsuarios(await resp.json());
+                  setUsuarioMulta(null);
+                  setMontoAjuste('');
+                }
+              } catch (error) {
+                console.error('Error al ajustar multa:', error);
+              }
+            }}
+          >
+            Aplicar Ajuste
+          </Button>
+        </DialogActions>
+      </Dialog>
+ {/* Panel de filtros desplegable */}
+ <Collapse in={showFiltros}>
         <Paper
           elevation={2}
           sx={{
